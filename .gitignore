@@ -1,0 +1,22 @@
+# Secrets / local env
+.env
+*.env
+!*.env.example
+
+# Node
+web-dashboard/node_modules/
+web-dashboard/npm-debug.log*
+
+# Python
+bot/__pycache__/
+bot/*.pyc
+bot/.venv/
+bot/venv/
+
+# Logs
+*.log
+*.log.err
+
+# OS
+Thumbs.db
+.DS_Store
