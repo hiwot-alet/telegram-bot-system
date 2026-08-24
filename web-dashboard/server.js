@@ -189,10 +189,39 @@ async function fetchRecentLogs(limit) {
   return rows.map(formatLogRow);
 }
 
+/**
+ * Per-promoter customer counts, for the "who registered how many customers"
+ * leaderboard. Counted from customer_verifications (one row per OTP attempt
+ * a promoter ran for a customer) rather than verification_events, since that's
+ * the same table the "Verified By" attribution elsewhere already relies on.
+ * customers_contacted counts distinct customers the promoter ever ran an OTP
+ * attempt for; customers_verified counts the subset currently verified.
+ */
+async function fetchPromoterLeaderboard() {
+  const { rows } = await query(`
+    SELECT p.id, p.telegram_username, p.full_name, p.city,
+           c.name AS campaign_name,
+           COUNT(DISTINCT cv.customer_id)::int AS customers_contacted,
+           COUNT(DISTINCT CASE WHEN cu.status = 'verified' THEN cv.customer_id END)::int AS customers_verified
+    FROM promoters p
+    LEFT JOIN campaigns c ON c.id = p.campaign_id
+    LEFT JOIN customer_verifications cv ON cv.promoter_id = p.id
+    LEFT JOIN customers cu ON cu.id = cv.customer_id
+    GROUP BY p.id, c.name
+    HAVING COUNT(DISTINCT cv.customer_id) > 0
+    ORDER BY customers_verified DESC, customers_contacted DESC
+  `);
+  return rows;
+}
+
 app.get('/', async (req, res, next) => {
   try {
-    const [stats, logs] = await Promise.all([fetchAggregateStats(), fetchRecentLogs(50)]);
-    res.render('dashboard', { stats, logs });
+    const [stats, logs, promoterLeaderboard] = await Promise.all([
+      fetchAggregateStats(),
+      fetchRecentLogs(50),
+      fetchPromoterLeaderboard(),
+    ]);
+    res.render('dashboard', { stats, logs, promoterLeaderboard });
   } catch (err) {
     next(err);
   }
@@ -221,6 +250,8 @@ app.get('/api/reports/csv', async (req, res) => {
       'Started At (UTC)',
       'Verified At (UTC)',
       'Time To Verify',
+      'Customers Registered',
+      'Customers Verified',
     ])
   );
 
@@ -233,9 +264,19 @@ app.get('/api/reports/csv', async (req, res) => {
       const { rows } = await query(
         `
         SELECT p.id, p.telegram_username, p.full_name, p.phone_number,
-               c.name AS campaign_name, p.status, p.created_at, p.verified_at
+               c.name AS campaign_name, p.status, p.created_at, p.verified_at,
+               COALESCE(cust.customers_contacted, 0) AS customers_contacted,
+               COALESCE(cust.customers_verified, 0) AS customers_verified
         FROM promoters p
         LEFT JOIN campaigns c ON c.id = p.campaign_id
+        LEFT JOIN (
+          SELECT cv.promoter_id,
+                 COUNT(DISTINCT cv.customer_id)::int AS customers_contacted,
+                 COUNT(DISTINCT CASE WHEN cu.status = 'verified' THEN cv.customer_id END)::int AS customers_verified
+          FROM customer_verifications cv
+          JOIN customers cu ON cu.id = cv.customer_id
+          GROUP BY cv.promoter_id
+        ) cust ON cust.promoter_id = p.id
         WHERE p.id > $1
         ORDER BY p.id
         LIMIT $2
@@ -260,6 +301,8 @@ app.get('/api/reports/csv', async (req, res) => {
             row.created_at ? new Date(row.created_at).toISOString() : '',
             row.verified_at ? new Date(row.verified_at).toISOString() : '',
             timeToVerify,
+            row.customers_contacted,
+            row.customers_verified,
           ])
         );
       }
@@ -457,6 +500,84 @@ app.get('/api/reports/customers/xlsx', async (req, res) => {
     await sheet.commit();
     await workbook.commit();
   }
+});
+
+// ----------------------------------------------------------------------------
+// GET /api/promoters/:id/customers/csv — the list of customers a single
+// promoter has registered (i.e. run at least one OTP attempt for), with
+// masked phone numbers. Linked from the promoter leaderboard on the
+// dashboard so "how many" (the count) and "which ones" (this export) are
+// both one click away.
+// ----------------------------------------------------------------------------
+
+app.get('/api/promoters/:id/customers/csv', async (req, res) => {
+  const promoterId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(promoterId)) {
+    res.status(400).send('Invalid promoter id');
+    return;
+  }
+
+  const { rows: promoterRows } = await query(
+    'SELECT telegram_username, full_name FROM promoters WHERE id = $1',
+    [promoterId]
+  );
+  if (promoterRows.length === 0) {
+    res.status(404).send('Promoter not found');
+    return;
+  }
+  const promoter = promoterRows[0];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const safeName = (promoter.telegram_username || promoter.full_name || `promoter-${promoterId}`).replace(
+    /[^a-z0-9_-]/gi,
+    '_'
+  );
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="customers_by_${safeName}_${today}.csv"`);
+
+  res.write(
+    toCsvRow([
+      'Customer Name',
+      'Customer Phone (masked)',
+      'Status',
+      'First Contacted (UTC)',
+      'Verified At (UTC)',
+      'Time To Verify',
+    ])
+  );
+
+  const { rows } = await query(
+    `
+    SELECT cu.id, cu.full_name, cu.phone_number, cu.status,
+           MIN(cv.created_at) AS first_contacted_at,
+           MAX(cu.verified_at) AS verified_at
+    FROM customer_verifications cv
+    JOIN customers cu ON cu.id = cv.customer_id
+    WHERE cv.promoter_id = $1
+    GROUP BY cu.id
+    ORDER BY first_contacted_at DESC
+    `,
+    [promoterId]
+  );
+
+  for (const row of rows) {
+    const timeToVerify =
+      row.verified_at && row.first_contacted_at
+        ? formatDuration(new Date(row.verified_at) - new Date(row.first_contacted_at))
+        : '';
+    res.write(
+      toCsvRow([
+        row.full_name || '',
+        maskPhone(row.phone_number),
+        row.status,
+        row.first_contacted_at ? new Date(row.first_contacted_at).toISOString() : '',
+        row.verified_at ? new Date(row.verified_at).toISOString() : '',
+        timeToVerify,
+      ])
+    );
+  }
+
+  res.end();
 });
 
 // ----------------------------------------------------------------------------

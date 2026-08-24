@@ -180,6 +180,47 @@ function toneDotClasses(tone) {
         <p class="px-4 py-8 text-center text-sm text-chrome-muted">No verification activity yet.</p>
       <% } %>
     </section>
+
+    <!-- Promoter leaderboard: how many customers each promoter has registered -->
+    <section class="mt-8 overflow-hidden rounded-lg bg-chrome-surface ring-1 ring-inset ring-white/10">
+      <div class="border-b border-white/10 px-4 py-3">
+        <h2 class="text-sm font-semibold text-chrome-primary">Customers registered per promoter</h2>
+        <p class="mt-0.5 text-xs text-chrome-muted">Sorted by verified customers. Download a promoter's full customer list as CSV.</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-white/10">
+          <thead class="bg-white/5">
+            <tr>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-chrome-muted">Promoter</th>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-chrome-muted">City</th>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-chrome-muted">Campaign</th>
+              <th scope="col" class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-chrome-muted">Customers contacted</th>
+              <th scope="col" class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-chrome-muted">Customers verified</th>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-chrome-muted">List</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5 text-sm">
+            <% promoterLeaderboard.forEach(function (row) { %>
+              <tr>
+                <td class="whitespace-nowrap px-4 py-3 text-chrome-primary"><%= row.full_name || row.telegram_username || ('Promoter #' + row.id) %></td>
+                <td class="whitespace-nowrap px-4 py-3 text-chrome-secondary"><%= row.city || '—' %></td>
+                <td class="whitespace-nowrap px-4 py-3 text-chrome-secondary"><%= row.campaign_name || '—' %></td>
+                <td class="tabular whitespace-nowrap px-4 py-3 text-right text-chrome-secondary"><%= row.customers_contacted %></td>
+                <td class="tabular whitespace-nowrap px-4 py-3 text-right text-emerald-400"><%= row.customers_verified %></td>
+                <td class="whitespace-nowrap px-4 py-3">
+                  <a href="/api/promoters/<%= row.id %>/customers/csv" class="text-xs font-medium text-chrome-primary underline decoration-white/30 hover:decoration-white/70">
+                    Download CSV
+                  </a>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% if (promoterLeaderboard.length === 0) { %>
+        <p class="px-4 py-8 text-center text-sm text-chrome-muted">No promoter has registered any customers yet.</p>
+      <% } %>
+    </section>
   </div>
 
   <script>
