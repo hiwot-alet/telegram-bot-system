@@ -858,6 +858,7 @@ async def cmd_export(message: Message, command: CommandObject) -> None:
 
 async def main() -> None:
     db.init_pool()
+    db.run_migrations()
     sms_client = SmsClient()
 
     if not ADMIN_TELEGRAM_IDS:

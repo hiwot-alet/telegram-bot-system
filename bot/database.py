@@ -92,6 +92,50 @@ def init_pool() -> pg_pool.ThreadedConnectionPool:
     return _pool
 
 
+MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations")
+
+
+def run_migrations() -> None:
+    """Apply any .sql files under migrations/ not yet recorded in schema_migrations.
+
+    Safe to call on every startup: already-applied files are skipped. Needed
+    because this project has no separate migration-runner step in its deploy
+    pipeline, so the app must bootstrap its own schema on first boot.
+    """
+    pool = init_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    filename TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            cur.execute("SELECT filename FROM schema_migrations")
+            applied = {row[0] for row in cur.fetchall()}
+
+            for filename in sorted(os.listdir(MIGRATIONS_DIR)):
+                if not filename.endswith(".sql") or filename in applied:
+                    continue
+                path = os.path.join(MIGRATIONS_DIR, filename)
+                with open(path, "r", encoding="utf-8") as f:
+                    sql = f.read()
+                logger.info("Applying migration %s", filename)
+                cur.execute(sql)
+                cur.execute(
+                    "INSERT INTO schema_migrations (filename) VALUES (%s)", (filename,)
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
 def close_pool() -> None:
     global _pool
     if _pool is not None:
