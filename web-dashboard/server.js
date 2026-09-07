@@ -16,7 +16,12 @@
  *                           session.
  *
  * Required environment variables:
- *   DATABASE_URL   see db.js / ../db/migrations/001_init.sql
+ *   DATABASE_URL         see db.js / ../db/migrations/001_init.sql
+ *   ADMIN_USERNAME        admin login username
+ *   ADMIN_PASSWORD_HASH   bcrypt hash of the admin login password (never the
+ *                         plaintext password) — generate one with:
+ *                           node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"
+ *   SESSION_SECRET        long random string used to sign the session cookie
  *
  * Optional environment variables:
  *   PORT           HTTP port to listen on (default: 3000)
@@ -32,15 +37,86 @@ require('dotenv').config();
 
 const path = require('path');
 const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const { query, listenForVerificationEvents } = require('./db');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+  throw new Error('ADMIN_USERNAME and ADMIN_PASSWORD_HASH environment variables are required');
+}
+if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required');
+}
 
 const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // sits behind AletCloud's ingress/TLS termination
+
+app.use(express.urlencoded({ extended: false }));
+app.use(
+  session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 12 * 60 * 60 * 1000, // 12h
+    },
+  })
+);
+
+// ----------------------------------------------------------------------------
+// Admin authentication — a single shared login gates the whole dashboard
+// (stats, logs, exports, live stream). Session-based; the password is never
+// stored or compared in plaintext.
+// ----------------------------------------------------------------------------
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.authenticated) return next();
+  return res.redirect('/login');
+}
+
+app.get('/login', (req, res) => {
+  if (req.session.authenticated) return res.redirect('/');
+  res.render('login', { error: null });
+});
+
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  const usernameMatches = typeof username === 'string' && username === ADMIN_USERNAME;
+  // Always run bcrypt.compare, even on a username mismatch, so response
+  // timing doesn't reveal whether a given username exists.
+  const passwordMatches = await bcrypt.compare(password || '', ADMIN_PASSWORD_HASH);
+
+  if (!usernameMatches || !passwordMatches) {
+    return res.status(401).render('login', { error: 'Invalid username or password.' });
+  }
+
+  req.session.regenerate((err) => {
+    if (err) {
+      console.error('Session regenerate failed:', err);
+      return res.status(500).render('login', { error: 'Something went wrong. Try again.' });
+    }
+    req.session.authenticated = true;
+    req.session.username = username;
+    res.redirect('/');
+  });
+});
+
+app.post('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/login'));
+});
+
+app.use(requireAuth);
 
 // ----------------------------------------------------------------------------
 // Shared formatting helpers
@@ -147,6 +223,27 @@ function toCsvRow(values) {
   return values.map(csvEscape).join(',') + '\r\n';
 }
 
+// Ethiopia has one timezone, UTC+3, with no DST — registration/verification
+// timestamps are stored in UTC but always displayed in East Africa Time so
+// promoters/admins reviewing the dashboard see local wall-clock time.
+const EAT_TIMEZONE = 'Africa/Addis_Ababa';
+
+function formatEAT(dateLike) {
+  if (!dateLike) return '';
+  return new Date(dateLike)
+    .toLocaleString('en-GB', {
+      timeZone: EAT_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    .replace(',', '');
+}
+
 function formatDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '';
   const totalSeconds = Math.round(ms / 1000);
@@ -247,8 +344,8 @@ app.get('/api/reports/csv', async (req, res) => {
       'Phone (masked)',
       'Campaign',
       'Status',
-      'Started At (UTC)',
-      'Verified At (UTC)',
+      'Started At (EAT)',
+      'Verified At (EAT)',
       'Time To Verify',
       'Customers Registered',
       'Customers Verified',
@@ -298,8 +395,8 @@ app.get('/api/reports/csv', async (req, res) => {
             maskPhone(row.phone_number),
             row.campaign_name || '',
             row.status,
-            row.created_at ? new Date(row.created_at).toISOString() : '',
-            row.verified_at ? new Date(row.verified_at).toISOString() : '',
+            formatEAT(row.created_at),
+            formatEAT(row.verified_at),
             timeToVerify,
             row.customers_contacted,
             row.customers_verified,
@@ -340,8 +437,8 @@ app.get('/api/reports/customers/csv', async (req, res) => {
       'Promoter Telegram Username',
       'Campaign',
       'Status',
-      'First Contacted (UTC)',
-      'Verified At (UTC)',
+      'First Contacted (EAT)',
+      'Verified At (EAT)',
       'Time To Verify',
     ])
   );
@@ -388,8 +485,8 @@ app.get('/api/reports/customers/csv', async (req, res) => {
             row.promoter_telegram_username || '',
             row.campaign_name || '',
             row.status,
-            row.created_at ? new Date(row.created_at).toISOString() : '',
-            row.verified_at ? new Date(row.verified_at).toISOString() : '',
+            formatEAT(row.created_at),
+            formatEAT(row.verified_at),
             timeToVerify,
           ])
         );
@@ -434,8 +531,8 @@ app.get('/api/reports/customers/xlsx', async (req, res) => {
     { header: 'City', key: 'city', width: 16 },
     { header: 'Campaign', key: 'campaign', width: 18 },
     { header: 'Status', key: 'status', width: 12 },
-    { header: 'First Contacted (UTC)', key: 'started_at', width: 20 },
-    { header: 'Verified At (UTC)', key: 'verified_at', width: 20 },
+    { header: 'First Contacted (EAT)', key: 'started_at', width: 20 },
+    { header: 'Verified At (EAT)', key: 'verified_at', width: 20 },
     { header: 'Time To Verify', key: 'time_to_verify', width: 16 },
   ];
   sheet.getRow(1).font = { bold: true };
@@ -484,8 +581,8 @@ app.get('/api/reports/customers/xlsx', async (req, res) => {
             city: row.promoter_city || '',
             campaign: row.campaign_name || '',
             status: row.status,
-            started_at: row.created_at ? new Date(row.created_at).toISOString() : '',
-            verified_at: row.verified_at ? new Date(row.verified_at).toISOString() : '',
+            started_at: formatEAT(row.created_at),
+            verified_at: formatEAT(row.verified_at),
             time_to_verify: timeToVerify,
           })
           .commit();
@@ -544,8 +641,8 @@ app.get('/api/promoters/:id/customers/xlsx', async (req, res) => {
     { header: 'Customer Name', key: 'customer_name', width: 24 },
     { header: 'Customer Phone (masked)', key: 'phone', width: 20 },
     { header: 'Status', key: 'status', width: 12 },
-    { header: 'First Contacted (UTC)', key: 'first_contacted_at', width: 20 },
-    { header: 'Verified At (UTC)', key: 'verified_at', width: 20 },
+    { header: 'First Contacted (EAT)', key: 'first_contacted_at', width: 20 },
+    { header: 'Verified At (EAT)', key: 'verified_at', width: 20 },
     { header: 'Time To Verify', key: 'time_to_verify', width: 16 },
   ];
   sheet.getRow(1).font = { bold: true };
@@ -575,8 +672,8 @@ app.get('/api/promoters/:id/customers/xlsx', async (req, res) => {
           customer_name: row.full_name || '',
           phone: maskPhone(row.phone_number),
           status: row.status,
-          first_contacted_at: row.first_contacted_at ? new Date(row.first_contacted_at).toISOString() : '',
-          verified_at: row.verified_at ? new Date(row.verified_at).toISOString() : '',
+          first_contacted_at: formatEAT(row.first_contacted_at),
+          verified_at: formatEAT(row.verified_at),
           time_to_verify: timeToVerify,
         })
         .commit();
@@ -709,4 +806,5 @@ module.exports = {
   csvEscape,
   toCsvRow,
   formatDuration,
+  formatEAT,
 };

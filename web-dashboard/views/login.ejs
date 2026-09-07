@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Verification Dashboard</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem('theme');
+        var theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+      } catch (e) {}
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            chrome: {
+              plane: '#0d0d0d',
+              surface: '#1a1a19',
+              primary: '#ffffff',
+              secondary: '#c3c2b7',
+              muted: '#898781',
+            },
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="flex h-full items-center justify-center bg-slate-50 text-slate-900 antialiased dark:bg-chrome-plane dark:text-chrome-primary">
+  <div class="w-full max-w-sm rounded-lg bg-white p-8 ring-1 ring-inset ring-slate-200 dark:bg-chrome-surface dark:ring-white/10">
+    <h1 class="text-lg font-semibold text-slate-900 dark:text-chrome-primary">Verification Dashboard</h1>
+    <p class="mt-1 text-sm text-slate-500 dark:text-chrome-secondary">Sign in with your admin credentials.</p>
+
+    <% if (error) { %>
+      <p class="mt-4 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 ring-1 ring-inset ring-red-500/20 dark:text-red-400">
+        <%= error %>
+      </p>
+    <% } %>
+
+    <form method="POST" action="/login" class="mt-6 space-y-4">
+      <div>
+        <label for="username" class="block text-sm font-medium text-slate-700 dark:text-chrome-secondary">Username</label>
+        <input
+          id="username"
+          name="username"
+          type="text"
+          autocomplete="username"
+          required
+          autofocus
+          class="mt-1.5 block w-full rounded-md border-0 bg-white px-3 py-2 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-emerald-500 focus:outline-none dark:bg-chrome-plane dark:text-chrome-primary dark:ring-white/10"
+        />
+      </div>
+      <div>
+        <label for="password" class="block text-sm font-medium text-slate-700 dark:text-chrome-secondary">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+          class="mt-1.5 block w-full rounded-md border-0 bg-white px-3 py-2 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-emerald-500 focus:outline-none dark:bg-chrome-plane dark:text-chrome-primary dark:ring-white/10"
+        />
+      </div>
+      <button
+        type="submit"
+        class="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+      >
+        Sign in
+      </button>
+    </form>
+  </div>
+</body>
+</html>

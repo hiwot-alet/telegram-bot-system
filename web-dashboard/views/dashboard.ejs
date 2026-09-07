@@ -22,6 +22,18 @@ function toneDotClasses(tone) {
     default: return 'bg-slate-400';
   }
 }
+// Ethiopia has one timezone, UTC+3, no DST — every timestamp on this page is
+// shown in East Africa Time, matching server.js's formatEAT() used in exports.
+function formatEAT(dateLike) {
+  return new Date(dateLike)
+    .toLocaleString('en-GB', {
+      timeZone: 'Africa/Addis_Ababa',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    })
+    .replace(',', '');
+}
 %>
 <!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -112,6 +124,14 @@ function toneDotClasses(tone) {
         >
           Export Customers Excel
         </a>
+        <form method="POST" action="/logout">
+          <button
+            type="submit"
+            class="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-slate-900 ring-1 ring-inset ring-slate-200 hover:bg-slate-100 dark:bg-chrome-surface dark:text-chrome-primary dark:ring-white/10 dark:hover:bg-white/5"
+          >
+            Sign out
+          </button>
+        </form>
       </div>
     </header>
 
@@ -211,7 +231,7 @@ function toneDotClasses(tone) {
         <table class="min-w-full divide-y divide-slate-200 dark:divide-white/10">
           <thead class="bg-slate-50 dark:bg-white/5">
             <tr>
-              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Time</th>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Time (EAT)</th>
               <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Subject</th>
               <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Phone</th>
               <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Verified by</th>
@@ -222,7 +242,7 @@ function toneDotClasses(tone) {
           <tbody id="log-table-body" class="divide-y divide-slate-100 text-sm dark:divide-white/5">
             <% logs.forEach(function (log) { %>
               <tr data-row-id="<%= log.id %>" data-tone="<%= log.statusTone %>" data-type="<%= log.subjectType %>">
-                <td class="tabular whitespace-nowrap px-4 py-3 text-slate-500 dark:text-chrome-secondary"><%= new Date(log.createdAt).toLocaleString() %></td>
+                <td class="tabular whitespace-nowrap px-4 py-3 text-slate-500 dark:text-chrome-secondary"><%= formatEAT(log.createdAt) %></td>
                 <td class="whitespace-nowrap px-4 py-3 text-slate-900 dark:text-chrome-primary">
                   <span class="mr-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:bg-white/5 dark:text-chrome-muted"><%= log.subjectType %></span>
                   <%= log.subjectName %>
@@ -263,6 +283,19 @@ function toneDotClasses(tone) {
     };
     const MAX_ROWS = 50;
 
+    // Keep in sync with the EJS scriptlet's formatEAT() above and
+    // server.js's formatEAT() used in exports — all three must agree.
+    function formatEAT(dateLike) {
+      return new Date(dateLike)
+        .toLocaleString('en-GB', {
+          timeZone: 'Africa/Addis_Ababa',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false,
+        })
+        .replace(',', '');
+    }
+
     const tbody = document.getElementById('log-table-body');
     const searchInput = document.getElementById('search-input');
     const statusFilter = document.getElementById('status-filter');
@@ -301,7 +334,7 @@ function toneDotClasses(tone) {
       const dot = TONE_DOT_CLASSES[log.statusTone] || TONE_DOT_CLASSES.info;
       const verifiedBy = log.subjectType === 'customer' ? escapeHtml(log.promoterName) : '—';
       tr.innerHTML = `
-        <td class="tabular whitespace-nowrap px-4 py-3 text-slate-500 dark:text-chrome-secondary">${new Date(log.createdAt).toLocaleString()}</td>
+        <td class="tabular whitespace-nowrap px-4 py-3 text-slate-500 dark:text-chrome-secondary">${formatEAT(log.createdAt)}</td>
         <td class="whitespace-nowrap px-4 py-3 text-slate-900 dark:text-chrome-primary">
           <span class="mr-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:bg-white/5 dark:text-chrome-muted">${escapeHtml(log.subjectType)}</span>
           ${escapeHtml(log.subjectName)}
