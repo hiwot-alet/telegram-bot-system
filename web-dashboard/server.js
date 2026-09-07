@@ -503,14 +503,14 @@ app.get('/api/reports/customers/xlsx', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
-// GET /api/promoters/:id/customers/csv — the list of customers a single
+// GET /api/promoters/:id/customers/xlsx — the list of customers a single
 // promoter has registered (i.e. run at least one OTP attempt for), with
 // masked phone numbers. Linked from the promoter leaderboard on the
 // dashboard so "how many" (the count) and "which ones" (this export) are
 // both one click away.
 // ----------------------------------------------------------------------------
 
-app.get('/api/promoters/:id/customers/csv', async (req, res) => {
+app.get('/api/promoters/:id/customers/xlsx', async (req, res) => {
   const promoterId = parseInt(req.params.id, 10);
   if (!Number.isInteger(promoterId)) {
     res.status(400).send('Invalid promoter id');
@@ -532,19 +532,23 @@ app.get('/api/promoters/:id/customers/csv', async (req, res) => {
     /[^a-z0-9_-]/gi,
     '_'
   );
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="customers_by_${safeName}_${today}.csv"`);
-
-  res.write(
-    toCsvRow([
-      'Customer Name',
-      'Customer Phone (masked)',
-      'Status',
-      'First Contacted (UTC)',
-      'Verified At (UTC)',
-      'Time To Verify',
-    ])
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   );
+  res.setHeader('Content-Disposition', `attachment; filename="customers_by_${safeName}_${today}.xlsx"`);
+
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useSharedStrings: true });
+  const sheet = workbook.addWorksheet('Customers');
+  sheet.columns = [
+    { header: 'Customer Name', key: 'customer_name', width: 24 },
+    { header: 'Customer Phone (masked)', key: 'phone', width: 20 },
+    { header: 'Status', key: 'status', width: 12 },
+    { header: 'First Contacted (UTC)', key: 'first_contacted_at', width: 20 },
+    { header: 'Verified At (UTC)', key: 'verified_at', width: 20 },
+    { header: 'Time To Verify', key: 'time_to_verify', width: 16 },
+  ];
+  sheet.getRow(1).font = { bold: true };
 
   const { rows } = await query(
     `
@@ -560,24 +564,29 @@ app.get('/api/promoters/:id/customers/csv', async (req, res) => {
     [promoterId]
   );
 
-  for (const row of rows) {
-    const timeToVerify =
-      row.verified_at && row.first_contacted_at
-        ? formatDuration(new Date(row.verified_at) - new Date(row.first_contacted_at))
-        : '';
-    res.write(
-      toCsvRow([
-        row.full_name || '',
-        maskPhone(row.phone_number),
-        row.status,
-        row.first_contacted_at ? new Date(row.first_contacted_at).toISOString() : '',
-        row.verified_at ? new Date(row.verified_at).toISOString() : '',
-        timeToVerify,
-      ])
-    );
+  try {
+    for (const row of rows) {
+      const timeToVerify =
+        row.verified_at && row.first_contacted_at
+          ? formatDuration(new Date(row.verified_at) - new Date(row.first_contacted_at))
+          : '';
+      sheet
+        .addRow({
+          customer_name: row.full_name || '',
+          phone: maskPhone(row.phone_number),
+          status: row.status,
+          first_contacted_at: row.first_contacted_at ? new Date(row.first_contacted_at).toISOString() : '',
+          verified_at: row.verified_at ? new Date(row.verified_at).toISOString() : '',
+          time_to_verify: timeToVerify,
+        })
+        .commit();
+    }
+  } catch (err) {
+    console.error('Promoter customer XLSX export failed mid-stream:', err);
+  } finally {
+    await sheet.commit();
+    await workbook.commit();
   }
-
-  res.end();
 });
 
 // ----------------------------------------------------------------------------
