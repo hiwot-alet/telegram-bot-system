@@ -854,9 +854,63 @@ async def cmd_export(message: Message, command: CommandObject) -> None:
 
 # ----------------------------------------------------------------------------
 # Entrypoint
+#
+# The hosting platform always runs 2 worker processes for this app, but
+# Telegram only allows one long-polling getUpdates client per bot token —
+# a second poller gets TelegramConflictError and both instances end up stuck
+# retrying instead of handling messages. A Postgres advisory lock elects a
+# single "leader" process to actually run the bot; the other process just
+# serves the health-check endpoint (also needed since the platform health
+# checks the container's HTTP port, which a pure long-polling bot otherwise
+# never opens, and periodically kills/restarts it as a result).
 # ----------------------------------------------------------------------------
 
+LEADER_LOCK_KEY = 872321  # arbitrary constant, unique to this app
+
+from aiohttp import web  # noqa: E402  (kept near its only use, below)
+
+
+async def start_health_server(port: int) -> "web.AppRunner":
+    async def health(_request: "web.Request") -> "web.Response":
+        return web.Response(text="ok")
+
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    return runner
+
+
+async def acquire_leader_lock() -> "psycopg2.extensions.connection":
+    """Block (without tying up the event loop) until this process holds the
+    leader advisory lock. A held lock is automatically released if its
+    connection dies (process crash/restart), so a standby process takes
+    over within one retry interval.
+    """
+    while True:
+        conn = psycopg2.connect(db.DATABASE_URL)
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (LEADER_LOCK_KEY,))
+        acquired = cur.fetchone()[0]
+        if acquired:
+            return conn
+        conn.close()
+        await asyncio.sleep(10)
+
+
 async def main() -> None:
+    port = int(os.environ.get("PORT", "3000"))
+    health_runner = await start_health_server(port)
+    logger.info("Health check server listening on 0.0.0.0:%s", port)
+
+    logger.info("Waiting to acquire leader lock...")
+    lock_conn = await acquire_leader_lock()
+    logger.info("Acquired leader lock (pid=%s) — this process is now the active bot instance.", os.getpid())
+
     db.init_pool()
     db.run_migrations()
     sms_client = SmsClient()
@@ -877,6 +931,8 @@ async def main() -> None:
     finally:
         await sms_client.close()
         db.close_pool()
+        lock_conn.close()
+        await health_runner.cleanup()
 
 
 if __name__ == "__main__":
