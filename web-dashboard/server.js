@@ -515,6 +515,88 @@ app.get('/api/reports/customers/csv', async (req, res) => {
 });
 
 // ----------------------------------------------------------------------------
+// GET /api/promoters/:id/customers/csv — the list of customers a single
+// promoter has registered (i.e. run at least one OTP attempt for), with
+// masked phone numbers. Linked from the promoter leaderboard on the
+// dashboard so "how many" (the count) and "which ones, by name" (this
+// export) are both one click away.
+// ----------------------------------------------------------------------------
+
+app.get('/api/promoters/:id/customers/csv', async (req, res) => {
+  const promoterId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(promoterId)) {
+    res.status(400).send('Invalid promoter id');
+    return;
+  }
+
+  const { rows: promoterRows } = await query(
+    'SELECT telegram_username, full_name FROM promoters WHERE id = $1',
+    [promoterId]
+  );
+  if (promoterRows.length === 0) {
+    res.status(404).send('Promoter not found');
+    return;
+  }
+  const promoter = promoterRows[0];
+
+  const today = todayEATDateStamp();
+  const safeName = (promoter.telegram_username || promoter.full_name || `promoter-${promoterId}`).replace(
+    /[^a-z0-9_-]/gi,
+    '_'
+  );
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="customers_by_${safeName}_${today}.csv"`);
+
+  res.write(
+    toCsvRow([
+      'Customer Name',
+      'Customer Phone (masked)',
+      'Status',
+      'First Contacted (EAT)',
+      'Verified At (EAT)',
+      'Time To Verify',
+    ])
+  );
+
+  try {
+    const { rows } = await query(
+      `
+      SELECT cu.id, cu.full_name, cu.phone_number, cu.status,
+             MIN(cv.created_at) AS first_contacted_at,
+             MAX(cu.verified_at) AS verified_at
+      FROM customer_verifications cv
+      JOIN customers cu ON cu.id = cv.customer_id
+      WHERE cv.promoter_id = $1
+      GROUP BY cu.id
+      ORDER BY first_contacted_at DESC
+      `,
+      [promoterId]
+    );
+
+    for (const row of rows) {
+      const timeToVerify =
+        row.verified_at && row.first_contacted_at
+          ? formatDuration(new Date(row.verified_at) - new Date(row.first_contacted_at))
+          : '';
+      res.write(
+        toCsvRow([
+          row.full_name || '',
+          maskPhone(row.phone_number),
+          row.status,
+          formatEAT(row.first_contacted_at),
+          formatEAT(row.verified_at),
+          timeToVerify,
+        ])
+      );
+    }
+  } catch (err) {
+    console.error('Promoter customer CSV export failed mid-stream:', err);
+  } finally {
+    res.end();
+  }
+});
+
+// ----------------------------------------------------------------------------
 // GET /api/events/stream — SSE, backed by Postgres LISTEN/NOTIFY
 // ----------------------------------------------------------------------------
 

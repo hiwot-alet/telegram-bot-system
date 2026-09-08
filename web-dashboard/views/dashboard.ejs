@@ -153,7 +153,7 @@ function formatEAT(dateLike) {
     <section class="mb-8 overflow-hidden rounded-lg bg-white ring-1 ring-inset ring-slate-200 dark:bg-chrome-surface dark:ring-white/10">
       <div class="border-b border-slate-200 px-4 py-3 dark:border-white/10">
         <h2 class="text-sm font-semibold text-slate-900 dark:text-chrome-primary">Promoters &amp; customers registered</h2>
-        <p class="mt-0.5 text-xs text-slate-400 dark:text-chrome-muted">Newest promoters first.</p>
+        <p class="mt-0.5 text-xs text-slate-400 dark:text-chrome-muted">Newest promoters first. Download a promoter's full customer list as CSV.</p>
       </div>
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-200 dark:divide-white/10">
@@ -164,6 +164,7 @@ function formatEAT(dateLike) {
               <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Campaign</th>
               <th scope="col" class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Customers contacted</th>
               <th scope="col" class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">Customers verified</th>
+              <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-chrome-muted">List</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 text-sm dark:divide-white/5">
@@ -174,6 +175,11 @@ function formatEAT(dateLike) {
                 <td class="whitespace-nowrap px-4 py-3 text-slate-500 dark:text-chrome-secondary"><%= row.campaign_name || '—' %></td>
                 <td class="tabular whitespace-nowrap px-4 py-3 text-right text-slate-500 dark:text-chrome-secondary"><%= row.customers_contacted %></td>
                 <td class="tabular whitespace-nowrap px-4 py-3 text-right text-emerald-600 dark:text-emerald-400"><%= row.customers_verified %></td>
+                <td class="whitespace-nowrap px-4 py-3">
+                  <a href="/api/promoters/<%= row.id %>/customers/csv" class="text-xs font-medium text-slate-900 underline decoration-slate-300 hover:decoration-slate-500 dark:text-chrome-primary dark:decoration-white/30 dark:hover:decoration-white/70">
+                    Download CSV
+                  </a>
+                </td>
               </tr>
             <% }); %>
           </tbody>
