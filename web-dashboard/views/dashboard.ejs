@@ -158,8 +158,8 @@ function formatEAT(dateLike) {
     <!-- Promoter leaderboard: how many customers each promoter has registered -->
     <section class="mb-8 overflow-hidden rounded-lg bg-white ring-1 ring-inset ring-slate-200 dark:bg-chrome-surface dark:ring-white/10">
       <div class="border-b border-slate-200 px-4 py-3 dark:border-white/10">
-        <h2 class="text-sm font-semibold text-slate-900 dark:text-chrome-primary">Customers registered per promoter</h2>
-        <p class="mt-0.5 text-xs text-slate-400 dark:text-chrome-muted">Sorted by verified customers. Download a promoter's full customer list as Excel.</p>
+        <h2 class="text-sm font-semibold text-slate-900 dark:text-chrome-primary">Promoters &amp; customers registered</h2>
+        <p class="mt-0.5 text-xs text-slate-400 dark:text-chrome-muted">Newest promoters first. Download a promoter's full customer list as Excel.</p>
       </div>
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-200 dark:divide-white/10">
@@ -192,7 +192,7 @@ function formatEAT(dateLike) {
         </table>
       </div>
       <% if (promoterLeaderboard.length === 0) { %>
-        <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-chrome-muted">No promoter has registered any customers yet.</p>
+        <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-chrome-muted">No promoters yet.</p>
       <% } %>
     </section>
 

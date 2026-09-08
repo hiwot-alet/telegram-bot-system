@@ -484,6 +484,12 @@ async def _finalize_customer_and_send_otp(
         return
 
     customer = await run_db(db.upsert_customer, phone, full_name)
+
+    if customer["status"] == "verified":
+        await message.answer(f"✅ This customer ({phone}) is already registered and verified.")
+        await state.clear()
+        return
+
     campaign_id = promoter.get("campaign_id")
     await run_db(db.log_event, promoter["id"], "customer_started", campaign_id=campaign_id, customer_id=customer["id"])
     await run_db(db.log_event, promoter["id"], "customer_phone_captured", campaign_id=campaign_id, customer_id=customer["id"])
@@ -659,6 +665,19 @@ async def cmd_add_promoter(message: Message, command: CommandObject) -> None:
         campaign_id=campaign_id,
         added_by_admin_id=message.from_user.id,
     )
+
+    if entry["previous_status"] == "active":
+        await message.answer(f'@{entry["telegram_username"]} is already registered as an active promoter.')
+        return
+
+    if entry["previous_status"] == "revoked":
+        await message.answer(
+            f'✅ @{entry["telegram_username"]} re-approved (access had been revoked)'
+            + (f' ({entry["city"]})' if entry.get("city") else "")
+            + ".\nThey can now send /start to the bot to begin verification."
+        )
+        return
+
     await message.answer(
         f'✅ @{entry["telegram_username"]} is now approved'
         + (f' ({entry["city"]})' if entry.get("city") else "")

@@ -320,6 +320,9 @@ def add_allowed_promoter(
     with get_cursor() as cur:
         cur.execute(
             """
+            WITH previous AS (
+                SELECT status FROM allowed_promoters WHERE telegram_username = %s
+            )
             INSERT INTO allowed_promoters (telegram_username, city, campaign_id, added_by_admin_id, status)
             VALUES (%s, %s, %s, %s, 'active')
             ON CONFLICT (telegram_username) DO UPDATE
@@ -328,9 +331,10 @@ def add_allowed_promoter(
                     campaign_id = COALESCE(EXCLUDED.campaign_id, allowed_promoters.campaign_id),
                     added_by_admin_id = EXCLUDED.added_by_admin_id,
                     revoked_at = NULL
-            RETURNING id, telegram_username, city, campaign_id, status, created_at
+            RETURNING id, telegram_username, city, campaign_id, status, created_at,
+                      (SELECT status FROM previous) AS previous_status
             """,
-            (username, city, campaign_id, added_by_admin_id),
+            (username, username, city, campaign_id, added_by_admin_id),
         )
         return cur.fetchone()
 

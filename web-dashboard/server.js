@@ -310,7 +310,7 @@ async function fetchRecentLogs(limit) {
  */
 async function fetchPromoterLeaderboard() {
   const { rows } = await query(`
-    SELECT p.id, p.telegram_username, p.full_name, p.city,
+    SELECT p.id, p.telegram_username, p.full_name, p.city, p.created_at,
            c.name AS campaign_name,
            COUNT(DISTINCT cv.customer_id)::int AS customers_contacted,
            COUNT(DISTINCT CASE WHEN cu.status = 'verified' THEN cv.customer_id END)::int AS customers_verified
@@ -319,8 +319,7 @@ async function fetchPromoterLeaderboard() {
     LEFT JOIN customer_verifications cv ON cv.promoter_id = p.id
     LEFT JOIN customers cu ON cu.id = cv.customer_id
     GROUP BY p.id, c.name
-    HAVING COUNT(DISTINCT cv.customer_id) > 0
-    ORDER BY customers_verified DESC, customers_contacted DESC
+    ORDER BY p.created_at DESC
   `);
   return rows;
 }
