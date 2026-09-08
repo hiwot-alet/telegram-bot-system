@@ -173,20 +173,39 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
     telegram_user = message.from_user
 
     # ------------------------------------------------------------------
+    # Admins never go through the promoter flow — no promoters row, no
+    # name/city onboarding, no roster gate, and they don't show up in the
+    # dashboard leaderboard or activity log as a promoter. An admin who
+    # also wants to run verifications personally needs a separate Telegram
+    # account added as a regular promoter via /addpromoter.
+    # ------------------------------------------------------------------
+    if telegram_user.id in ADMIN_TELEGRAM_IDS:
+        await message.answer(
+            f"👋 Welcome, {telegram_user.full_name}. You're signed in as an admin.\n\n"
+            "Admin commands:\n"
+            "/addpromoter <telegram_username> [city] [campaign_slug] — approve a promoter\n"
+            "/removepromoter <telegram_username> — revoke a promoter's access\n"
+            "/listpromoters [active|revoked] — show the current roster\n"
+            "/add <slug> <name> — create a new campaign\n"
+            "/deactivate <slug> — close a campaign\n"
+            "/export [slug] — generate a verification report"
+        )
+        return
+
+    # ------------------------------------------------------------------
     # Roster gate: only Telegram usernames an admin has pre-registered via
     # /addpromoter may use the bot at all. This is the access-control model
     # INDOMIE asked for — revoking/onboarding a promoter is a single admin
     # command on our side, no engineer involvement needed.
     # ------------------------------------------------------------------
-    if telegram_user.id not in ADMIN_TELEGRAM_IDS:
-        roster_entry = await run_db(db.is_promoter_allowed, telegram_user.username)
-        if roster_entry is None:
-            await message.answer(
-                "This bot is private and restricted to registered promoters. "
-                "Your Telegram account isn't on the approved list yet — please make sure you "
-                "have a Telegram @username set, then contact your campaign administrator to be added."
-            )
-            return
+    roster_entry = await run_db(db.is_promoter_allowed, telegram_user.username)
+    if roster_entry is None:
+        await message.answer(
+            "This bot is private and restricted to registered promoters. "
+            "Your Telegram account isn't on the approved list yet — please make sure you "
+            "have a Telegram @username set, then contact your campaign administrator to be added."
+        )
+        return
 
     campaign_slug = (command.args or "").strip() or None
     campaign = None
@@ -202,12 +221,10 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
                 f'The "{campaign["name"]}" campaign is not currently accepting new verifications.'
             )
 
-    # A roster entry's own campaign/city (set by the admin at /addpromoter
+    # roster_entry's own campaign/city (set by the admin at /addpromoter
     # time) takes priority over a deep-link slug, so a promoter can't be
     # reassigned just by someone sharing a different campaign's link.
-    roster_entry = None if telegram_user.id in ADMIN_TELEGRAM_IDS else await run_db(
-        db.is_promoter_allowed, telegram_user.username
-    )
+    # (Already fetched above by the roster gate — reused, not re-queried.)
     effective_campaign_id = (
         roster_entry["campaign_id"] if roster_entry and roster_entry.get("campaign_id") else (campaign["id"] if campaign else None)
     )
