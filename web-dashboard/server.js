@@ -244,6 +244,20 @@ function formatEAT(dateLike) {
     .replace(',', '');
 }
 
+// YYYY-MM-DD for "today" in EAT, used in export filenames so the date in the
+// filename matches the EAT timestamps inside the file (a plain UTC date can
+// be a day ahead late in the EAT evening).
+function todayEATDateStamp() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: EAT_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const lookup = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
 function formatDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '';
   const totalSeconds = Math.round(ms / 1000);
@@ -333,7 +347,7 @@ app.get('/', async (req, res, next) => {
 // ----------------------------------------------------------------------------
 
 app.get('/api/reports/csv', async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayEATDateStamp();
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="verification_report_${today}.csv"`);
 
@@ -425,7 +439,7 @@ app.get('/api/reports/csv', async (req, res) => {
 // ----------------------------------------------------------------------------
 
 app.get('/api/reports/customers/csv', async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayEATDateStamp();
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="customer_verification_report_${today}.csv"`);
 
@@ -510,7 +524,7 @@ app.get('/api/reports/customers/csv', async (req, res) => {
 // ----------------------------------------------------------------------------
 
 app.get('/api/reports/customers/xlsx', async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayEATDateStamp();
   res.setHeader(
     'Content-Type',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -624,7 +638,7 @@ app.get('/api/promoters/:id/customers/xlsx', async (req, res) => {
   }
   const promoter = promoterRows[0];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayEATDateStamp();
   const safeName = (promoter.telegram_username || promoter.full_name || `promoter-${promoterId}`).replace(
     /[^a-z0-9_-]/gi,
     '_'
