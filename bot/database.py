@@ -284,9 +284,30 @@ def upsert_promoter(
                     full_name = EXCLUDED.full_name,
                     campaign_id = COALESCE(promoters.campaign_id, EXCLUDED.campaign_id)
             RETURNING id, telegram_user_id, telegram_username, full_name,
-                      phone_number, campaign_id, status, created_at, updated_at, verified_at
+                      phone_number, campaign_id, status, created_at, updated_at, verified_at,
+                      onboarding_completed_at
             """,
             (telegram_user_id, telegram_username, full_name, campaign_id),
+        )
+        return cur.fetchone()
+
+
+def complete_promoter_onboarding(promoter_id: int, full_name: str, city: str) -> dict:
+    """
+    Record the promoter's own answers to the bot's name/city onboarding
+    questions, overwriting the Telegram-profile-derived full_name and any
+    admin-set city (the promoter's own answer is authoritative), and mark
+    onboarding as done so /start won't ask again.
+    """
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE promoters
+            SET full_name = %s, city = %s, onboarding_completed_at = now()
+            WHERE id = %s
+            RETURNING id, telegram_user_id, full_name, city, status, onboarding_completed_at
+            """,
+            (full_name, city, promoter_id),
         )
         return cur.fetchone()
 

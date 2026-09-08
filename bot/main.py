@@ -109,6 +109,14 @@ class VerifyStates(StatesGroup):
     waiting_for_otp = State()
 
 
+# Asked once, right after a brand-new promoter's first /start, before they're
+# invited to /verify. onboarding_completed_at on the promoters row gates this
+# so it's never repeated.
+class OnboardingStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_city = State()
+
+
 # A promoter verifying a customer is a separate flow from verifying
 # themselves. Since FSMContext holds one state per chat, a promoter can be in
 # VerifyStates.* OR CustomerStates.* at a time, never both — they finish (or
@@ -217,12 +225,55 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
 
     await run_db(db.log_event, promoter["id"], "started", campaign_id=promoter.get("campaign_id"))
 
+    if promoter.get("onboarding_completed_at") is None:
+        await state.set_state(OnboardingStates.waiting_for_name)
+        await message.answer(
+            f"Welcome, {telegram_user.full_name}! 👋\n\n"
+            "First, what's your full name?"
+        )
+        return
+
     if promoter["status"] == "verified":
         await message.answer(f"Welcome back, {telegram_user.full_name}! You're already verified. ✅")
         return
 
     await message.answer(
         f"Welcome, {telegram_user.full_name}! 👋\n\n"
+        "To complete promoter verification, send /verify and share your phone number."
+    )
+
+
+@router.message(OnboardingStates.waiting_for_name, F.text, NOT_A_COMMAND)
+async def handle_onboarding_name(message: Message, state: FSMContext) -> None:
+    name = message.text.strip()
+    if not name:
+        await message.answer("Please send your full name as text.")
+        return
+
+    await state.update_data(onboarding_name=name)
+    await state.set_state(OnboardingStates.waiting_for_city)
+    await message.answer("Thanks! Which city are you based in?")
+
+
+@router.message(OnboardingStates.waiting_for_city, F.text, NOT_A_COMMAND)
+async def handle_onboarding_city(message: Message, state: FSMContext) -> None:
+    city = message.text.strip()
+    if not city:
+        await message.answer("Please send your city as text.")
+        return
+
+    data = await state.get_data()
+    name = data.get("onboarding_name")
+    promoter = await run_db(db.get_promoter_by_telegram_id, message.from_user.id)
+    if promoter is None or not name:
+        await message.answer("Something went wrong — please send /start again.")
+        await state.clear()
+        return
+
+    await run_db(db.complete_promoter_onboarding, promoter["id"], name, city)
+    await state.clear()
+    await message.answer(
+        f"Thanks, {name}! You're all set.\n\n"
         "To complete promoter verification, send /verify and share your phone number."
     )
 
